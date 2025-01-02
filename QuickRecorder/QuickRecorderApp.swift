@@ -16,18 +16,17 @@ import ServiceManagement
 import CoreMediaIO
 import Sparkle
 
-var isMacOS12 = true
-var isMacOS14 = false
-var isMacOS15 = false
-var firstRun = true
+let isMacOS12 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 12
+let isMacOS14 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 14
+let isMacOS15 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 15
+var scPerm = false
+let fd = FileManager.default
 let ud = UserDefaults.standard
-var statusMenu: NSMenu = NSMenu()
 var statusBarItem: NSStatusItem!
 var mouseMonitor: Any?
 var keyMonitor: Any?
 var hideMousePointer = false
 var hideScreenMagnifier = false
-//let info = NSMenuItem(title: "Waiting on update…".local, action: nil, keyEquivalent: "")
 let updateTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 let mousePointer = NSWindow(contentRect: NSRect(x: -70, y: -70, width: 70, height: 70), styleMask: [.borderless], backing: .buffered, defer: false)
 let screenMagnifier = NSWindow(contentRect: NSRect(x: -402, y: -402, width: 402, height: 348), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -49,38 +48,47 @@ struct QuickRecorderApp: App {
     }
     
     var body: some Scene {
-        WindowGroup {}
-        .myWindowIsContentResizable()
-        .handlesExternalEvents(matching: [])
-        .commands {
-            CommandGroup(replacing: .newItem) {}
-            CommandGroup(after: .appInfo) {
-                CheckForUpdatesView(updater: updaterController.updater)
-            }
-        }
-        
-        Settings {
-            SettingsView()
-                .fixedSize()
-        }
-        
         DocumentGroup(newDocument: qmaPackageHandle()) { file in
             if SCContext.stream == nil {
                 if let fileURL = file.fileURL {
                     qmaPlayerView(document: file.$document, fileURL: fileURL)
                         .frame(minWidth: 400, minHeight: 100, maxHeight: 100)
                         .focusable(false)
-                    //.onAppear{ AppDelegate.shared.closeAllWindow(except: ".qma") }
                 }
             }
         }
         .myWindowIsContentResizable()
-        //.windowStyle(HiddenTitleBarWindowStyle())
         .commands {
             SidebarCommands()
             CommandGroup(replacing: .saveItem) {}
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .textEditing) {}
+        }
+        
+        Settings {
+            SettingsView()
+                .background(
+                    WindowAccessor(
+                        onWindowOpen: { w in
+                            if let w = w {
+                                //w.level = .floating
+                                w.titlebarSeparatorStyle = .none
+                                guard let nsSplitView = findNSSplitVIew(view: w.contentView),
+                                      let controller = nsSplitView.delegate as? NSSplitViewController else { return }
+                                controller.splitViewItems.first?.canCollapse = false
+                                controller.splitViewItems.first?.minimumThickness = 140
+                                controller.splitViewItems.first?.maximumThickness = 140
+                                w.orderFront(nil)
+                            }
+                        })
+                )
+        }
+        .handlesExternalEvents(matching: [])
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
         }
     }
 }
@@ -104,15 +112,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     var isResizing = false
     var presenterType = "OFF"
     var frameQueue = FixedLengthArray<CMTime>(maxLength: 20)
-    //var lastTime = CMTime(value: 0, timescale: 600)
+    
+    @AppStorage("showOnDock")       var showOnDock: Bool = true
+    @AppStorage("showMenubar")      var showMenubar: Bool = false
+    @AppStorage("enableAEC")        var enableAEC: Bool = false
+    @AppStorage("recordMic")        var recordMic: Bool = false
+    @AppStorage("micDevice")        var micDevice: String = "default"
+    @AppStorage("remuxAudio")       var remuxAudio: Bool = true
+    @AppStorage("recordWinSound")   var recordWinSound: Bool = true
+    @AppStorage("recordHDR")        var recordHDR: Bool = false
+    @AppStorage("encoder")          var encoder: Encoder = .h264
+    @AppStorage("highRes")          var highRes: Int = 2
+    @AppStorage("AECLevel")         var AECLevel: String = "mid"
+    @AppStorage("withAlpha")        var withAlpha: Bool = false
+    @AppStorage("saveDirectory")    var saveDirectory: String?
+    @AppStorage("countdown")        var countdown: Int = 0
+    @AppStorage("poSafeDelay")      var poSafeDelay: Int = 1
+    @AppStorage("highlightMouse")   var highlightMouse: Bool = false
+    @AppStorage("includeMenuBar")   var includeMenuBar: Bool = true
+    @AppStorage("hideDesktopFiles") var hideDesktopFiles: Bool = false
+    @AppStorage("trimAfterRecord")  var trimAfterRecord: Bool = false
+    @AppStorage("miniStatusBar")    var miniStatusBar: Bool = false
+    @AppStorage("hideSelf")         var hideSelf: Bool = true
+    @AppStorage("preventSleep")     var preventSleep: Bool = true
+    @AppStorage("showPreview")      var showPreview: Bool = true
+    @AppStorage("background")       var background: BackgroundType = .wallpaper
+    @AppStorage("showMouse")        var showMouse: Bool = true
+    @AppStorage("frameRate")        var frameRate: Int = 60
+    @AppStorage("videoQuality")     var videoQuality: Double = 1.0
+    @AppStorage("videoFormat")      var videoFormat: VideoFormat = .mp4
+    @AppStorage("audioFormat")      var audioFormat: AudioFormat = .aac
+    @AppStorage("audioQuality")     var audioQuality: AudioQuality = .high
+    @AppStorage("pixelFormat")      var pixelFormat: PixFormat = .delault
     
     func mousePointerReLocation(event: NSEvent) {
         if event.type == .scrollWheel { return }
-        if !ud.bool(forKey: "highlightMouse")
-            || hideMousePointer
-            || SCContext.stream == nil
-            || SCContext.streamType == .window
-        { mousePointer.orderOut(nil); return }
+        if !highlightMouse || hideMousePointer || SCContext.stream == nil || SCContext.streamType == .window {
+            mousePointer.orderOut(nil)
+            return
+        }
         let mouseLocation = event.locationInWindow
         var windowFrame = mousePointer.frame
         windowFrame.origin = NSPoint(x: mouseLocation.x - windowFrame.width / 2, y: mouseLocation.y - windowFrame.height / 2)
@@ -149,53 +187,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     func applicationWillTerminate(_ aNotification: Notification) {
         if SCContext.stream != nil { SCContext.stopRecording() }
     }
-
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if SCContext.stream == nil {
-            let w1 = NSApp.windows.filter({ !$0.title.contains("Item-0") && !$0.title.isEmpty && $0.isVisible })
-            let w2 = w1.filter({ !$0.title.contains(".qma") })
-            //print(w1.map({$0.title}), w2.map({$0.title}))
-            if (!w1.isEmpty && w2.isEmpty) || w1.isEmpty {
-                let mainPanel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 927, height: 100), styleMask: [.fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
-                mainPanel.contentView = NSHostingView(rootView: ContentView())
-                mainPanel.title = "QuickRecorder".local
-                mainPanel.isOpaque = false
-                mainPanel.level = .floating
-                mainPanel.isRestorable = false
-                mainPanel.backgroundColor = .clear
-                mainPanel.isReleasedWhenClosed = false
-                mainPanel.isMovableByWindowBackground = true
-                mainPanel.collectionBehavior = [.canJoinAllSpaces]
-                mainPanel.center()
-                if let screen = mainPanel.screen {
-                    let wX = (screen.frame.width - mainPanel.frame.width) / 2 + screen.frame.minX
-                    let wY = (screen.frame.height - mainPanel.frame.height) / 2 + screen.frame.minY
-                    mainPanel.setFrameOrigin(NSPoint(x: wX, y: wY))
-                }
-                mainPanel.orderFront(self)
-            }
-        }
-        return false
-    }
     
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            createNewWindow(view: VideoTrimmerView(videoURL: url), title: url.lastPathComponent, random: true)
-            //closeMainWindow()
+            createNewWindow(view: VideoTrimmerView(videoURL: url), title: url.lastPathComponent, random: true, only: false)
+            closeMainWindow()
         }
     }
     
     func applicationWillFinishLaunching(_ notification: Notification) {
+        scPerm = SCContext.updateAvailableContentSync() != nil
+        
         let process = NSWorkspace.shared.runningApplications.filter({ $0.bundleIdentifier == "com.lihaoyun6.QuickRecorder" })
         if process.count > 1 {
             DispatchQueue.main.async {
-                let button = self.createAlert(title: "QuickRecorder is Running".local, message: "Please do not run multiple instances!".local, button1: "Quit".local).runModal()
+                let button = createAlert(title: "QuickRecorder is Running".local, message: "Please do not run multiple instances!".local, button1: "Quit".local).runModal()
                 if button == .alertFirstButtonReturn { NSApp.terminate(self) }
             }
         }
         
         lazy var userDesktop = (NSSearchPathForDirectoriesInDomains(.desktopDirectory, .userDomainMask, true) as [String]).first!
-        //let saveDirectory = (UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location") ?? userDesktop) as NSString
         
         ud.register( // default defaults (used if not set)
             defaults: [
@@ -212,49 +223,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "countdown": 0,
                 "videoFormat": VideoFormat.mp4.rawValue,
                 "pixelFormat": PixFormat.delault.rawValue,
-                //"colorSpace": ColSpace.srgb.rawValue,
                 "encoder": Encoder.h264.rawValue,
                 "poSafeDelay": 1,
                 "saveDirectory": userDesktop as NSString,
                 "showMouse": true,
                 "recordMic": false,
-                "remuxAudio": true,
-                "recordWinSound": true,
+                "remuxAudio": isMacOS12 ? false : true,
+                "recordWinSound": isMacOS12 ? false : true,
                 "trimAfterRecord": false,
                 "showOnDock": true,
                 "showMenubar": false,
                 "enableAEC": false,
                 "recordHDR": false,
+                "preventSleep": true,
+                "showPreview": isMacOS12 ? false : true,
                 "savedArea": [String: [String: CGFloat]]()
             ]
         )
         
-        if ud.integer(forKey: "highRes") == 0 { ud.setValue(2, forKey: "highRes") }
-        if !ud.bool(forKey: "showOnDock") && !ud.bool(forKey: "showMenubar") { ud.setValue(true, forKey: "showOnDock") }
-        if ud.bool(forKey: "showOnDock") { NSApp.setActivationPolicy(.regular) }
+        if highRes == 0 { highRes = 2 }
+        if showOnDock { NSApp.setActivationPolicy(.regular) }
+        if isMacOS12 { showPreview = false; remuxAudio = false }
         
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error { print("Notification authorization denied: \(error.localizedDescription)") }
         }
-        
-        SCContext.updateAvailableContent{
-            print("available content has been updated")
-            let os = ProcessInfo.processInfo.operatingSystemVersion
-            if "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)" == "12.7.4" {
-                DispatchQueue.main.async {
-                    _ = AppDelegate.shared.createAlert(
-                        title: "Compatibility Warning".local,
-                        message: "You are using macOS 12.7.4\nOutput files will be randomly corrupted on this version of macOS!\n\nPlease upgrade to 12.7.5 to solve it.".local,
-                        button1: "OK".local).runModal()
-                }
-            }
-        }
-        
-        if #available(macOS 13, *) { isMacOS12 = false }
-        if #available(macOS 14, *) { isMacOS14 = true }
-        if #available(macOS 15, *) { isMacOS15 = true }
-        
-        //if !ud.bool(forKey: "showOnDock") { NSApp.setActivationPolicy(.accessory) }
         
         var allow : UInt32 = 1
         let dataSize : UInt32 = 4
@@ -264,11 +257,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
             mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
             mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
         CMIOObjectSetPropertyData(CMIOObjectID(kCMIOObjectSystemObject), &prop, zero, nil, dataSize, &allow)
-        
-        statusMenu.delegate = self
+
         statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusBarItem.menu = statusMenu
-        
+        statusBarItem.button?.image = NSImage()
+
         mousePointer.title = "Mouse Pointer".local
         mousePointer.level = .screenSaver
         mousePointer.ignoresMouseEvents = true
@@ -308,6 +300,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         controlPanel.titlebarAppearsTransparent = true
         controlPanel.isMovableByWindowBackground = true
         
+        KeyboardShortcuts.onKeyDown(for: .showPanel) {
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+            if SCContext.stream == nil { NSApp.activate(ignoringOtherApps: true) }
+        }
         KeyboardShortcuts.onKeyDown(for: .saveFrame) { if SCContext.stream != nil { SCContext.saveFrame = true }}
         KeyboardShortcuts.onKeyDown(for: .screenMagnifier) { if SCContext.stream != nil { SCContext.isMagnifierEnabled.toggle() }}
         KeyboardShortcuts.onKeyDown(for: .stop) { if SCContext.stream != nil { SCContext.stopRecording() }}
@@ -341,27 +337,85 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     }
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        if let menu = NSApplication.shared.mainMenu { menu.items.remove(at: 1) }
-        if #available(macOS 13, *) {
-            if firstRun && (SMAppService.mainApp.status == .enabled) {
-                firstRun = false
-                closeAllWindow()
+        closeAllWindow()
+        if showOnDock { _ = applicationShouldHandleReopen(NSApp, hasVisibleWindows: true) }
+    }
+    
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if SCContext.stream == nil {
+            let w1 = NSApp.windows.filter({ !$0.title.contains("Item-0") && !$0.title.isEmpty && $0.isVisible })
+            let w2 = w1.filter({ !$0.title.contains(".qma") })
+            if (!w1.isEmpty && w2.isEmpty) || w1.isEmpty {
+                let offset = (!showOnDock && !showMenubar) ? 128 : 0
+                let width = isMacOS12 ? 800 : 927
+                let mainPanel = EscPanel(contentRect: NSRect(x: 0, y: 0, width: width + offset, height: 100), styleMask: [.fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
+                mainPanel.contentView = NSHostingView(rootView: ContentView())
+                mainPanel.title = "QuickRecorder".local
+                mainPanel.isOpaque = false
+                mainPanel.level = .floating
+                mainPanel.isRestorable = false
+                mainPanel.backgroundColor = .clear
+                mainPanel.isReleasedWhenClosed = false
+                mainPanel.isMovableByWindowBackground = true
+                mainPanel.collectionBehavior = [.canJoinAllSpaces]
+                mainPanel.center()
+                if let screen = mainPanel.screen {
+                    let wX = (screen.frame.width - mainPanel.frame.width) / 2 + screen.frame.minX
+                    let wY = (screen.frame.height - mainPanel.frame.height) / 2 + screen.frame.minY
+                    mainPanel.setFrameOrigin(NSPoint(x: wX, y: wY))
+                }
+                mainPanel.makeKeyAndOrderFront(self)
+                if #unavailable(macOS 13) { NSApp.activate(ignoringOtherApps: true) }
+                PopoverState.shared.isShowing = false
             }
         }
-        closeAllWindow()
-        _ = applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+        return false
     }
     
     func openSettingPanel() {
         NSApp.activate(ignoringOtherApps: true)
         if #available(macOS 14, *) {
             NSApp.mainMenu?.items.first?.submenu?.item(at: 3)?.performAction()
-        }else if #available(macOS 13, *) {
+        } else if #available(macOS 13, *) {
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         } else {
             NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
         }
     }
+    
+    class EscPanel: NSPanel {
+        override func cancelOperation(_ sender: Any?) {
+            self.close()
+        }
+        override var canBecomeKey: Bool {
+            return true
+        }
+    }
+}
+
+func closeMainWindow() {
+    for w in NSApp.windows.filter({ $0.title == "QuickRecorder".local }) {
+        w.close()
+    }
+}
+
+func closeAllWindow(except: String = "") {
+    for w in NSApp.windows.filter({
+        $0.title != "Item-0" && $0.title != ""
+        && !$0.title.lowercased().contains(".qma")
+        && !$0.title.contains(except) }) { w.close() }
+}
+
+func findNSSplitVIew(view: NSView?) -> NSSplitView? {
+    var queue = [NSView]()
+    if let root = view { queue.append(root) }
+    
+    while !queue.isEmpty {
+        let current = queue.removeFirst()
+        if current is NSSplitView { return current as? NSSplitView }
+        for subview in current.subviews { queue.append(subview) }
+    }
+    return nil
 }
 
 func getStatusBarWidth() -> CGFloat {
@@ -403,6 +457,43 @@ func process(path: String, arguments: [String]) -> String? {
     }
     
     return output.trimmingCharacters(in: .newlines)
+}
+
+func tips(_ message: String, title: String? = nil, id: String, switchButton: Bool = false, width: Int? = nil, action: (() -> Void)? = nil) {
+    let never = (ud.object(forKey: "neverRemindMe") as? [String]) ?? []
+    if !never.contains(id) {
+        if switchButton {
+            let alert = createAlert(title: title ?? Bundle.main.appName + " Tips".local, message: message, button1: "OK", button2: "Don't remind me again", width: width).runModal()
+            if alert == .alertSecondButtonReturn { ud.setValue(never + [id], forKey: "neverRemindMe") }
+            if alert == .alertFirstButtonReturn { action?() }
+        } else {
+            let alert = createAlert(title: title ?? Bundle.main.appName + " Tips".local, message: message, button1: "Don't remind me again", button2: "OK", width: width).runModal()
+            if alert == .alertFirstButtonReturn { ud.setValue(never + [id], forKey: "neverRemindMe") }
+            if alert == .alertSecondButtonReturn { action?() }
+        }
+    }
+}
+
+func createAlert(level: NSAlert.Style = .warning, title: String, message: String, button1: String, button2: String = "", width: Int? = nil) -> NSAlert {
+    let alert = NSAlert()
+    alert.messageText = title.local
+    alert.informativeText = message.local
+    alert.addButton(withTitle: button1.local)
+    if button2 != "" { alert.addButton(withTitle: button2.local) }
+    alert.alertStyle = level
+    if let width = width {
+        alert.accessoryView = NSView(frame: NSMakeRect(0, 0, Double(width), 0))
+    }
+    return alert
+}
+
+extension Bundle {
+    var appName: String {
+        let appName = self.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                     ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+                     ?? "Unknown App Name"
+        return appName
+    }
 }
 
 extension String {

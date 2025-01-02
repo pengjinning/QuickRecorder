@@ -86,7 +86,7 @@ class AVOutputClass: NSObject, AVCaptureFileOutputRecordingDelegate, AVCaptureVi
             if let audioConnection = output.connection(with: .audio) {
                 SCContext.captureSession.removeConnection(audioConnection)
                 /*DispatchQueue.main.async {
-                    let alert = AppDelegate.shared.createAlert(title: "No Audio Connection",
+                    let alert = createAlert(title: "No Audio Connection",
                                                                message: "Unable to get audio stream on this device, only screen content will be recorded!",
                                                                button1: "OK")
                     alert.runModal()
@@ -109,8 +109,8 @@ class AVOutputClass: NSObject, AVCaptureFileOutputRecordingDelegate, AVCaptureVi
         
         SCContext.previewSession.startRunning()
         DispatchQueue.main.async {
-            AppDelegate.shared.closeAllWindow(except: "Area Overlayer".local)
-            AppDelegate.shared.updateStatusBar()
+            closeAllWindow(except: "Area Overlayer".local)
+            updateStatusBar()
             AppDelegate.shared.startDeviceOverlayer(size: NSSize(width: 300, height: 500))
         }
     }
@@ -125,7 +125,7 @@ class AVOutputClass: NSObject, AVCaptureFileOutputRecordingDelegate, AVCaptureVi
             DispatchQueue.main.async {
                 controlPanel.close()
                 deviceWindow.close()
-                AppDelegate.shared.updateStatusBar()
+                updateStatusBar()
             }
         }
     }
@@ -144,7 +144,7 @@ class AVOutputClass: NSObject, AVCaptureFileOutputRecordingDelegate, AVCaptureVi
         content.body = String(format: "File saved to: %@".local, outputFileURL.path)
         content.sound = UNNotificationSound.default
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-        let request = UNNotificationRequest(identifier: "quickrecorder.completed.\(Date.now)", content: content, trigger: trigger)
+        let request = UNNotificationRequest(identifier: "quickrecorder.completed.\(UUID().uuidString)", content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error { print("Notification failed to send：\(error.localizedDescription)") }
         }

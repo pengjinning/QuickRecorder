@@ -95,7 +95,7 @@ struct SwiftCameraView: View {
                         .rotation3DEffect(.degrees(isFlipped ? 180 : 0), axis: (x: 0, y: 1, z: 0))
                     Button(action: {
                         if type == .idevice {
-                            for w in NSApplication.shared.windows.filter({ $0.title == "iDevice Overlayer".local }) { w.close() }
+                            for w in NSApp.windows.filter({ $0.title == "iDevice Overlayer".local }) { w.close() }
                         } else {
                             isFlipped.toggle()
                         }
@@ -154,7 +154,7 @@ struct CameraPopoverView: View {
                             .font(.system(size: 12))
                     }.padding(.leading, 9)
                     Text("No Cameras Found!".local)
-                        .padding([.top, .bottom], 8).padding(.trailing, 10)
+                        .padding(.vertical, 8).padding(.trailing, 10)
                 }.frame(maxWidth: .infinity)
             }
             ForEach(cameras.indices, id: \.self) { index in
@@ -179,7 +179,7 @@ struct CameraPopoverView: View {
                                 .font(.system(size: 12))
                         }.padding(.leading, 9)
                         Text(cameras[index].localizedName)
-                            .padding([.top, .bottom], 8).padding(.trailing, 10)
+                            .padding(.vertical, 8).padding(.trailing, 10)
                         Spacer()
                     }
                     .frame(maxWidth: .infinity)
@@ -195,7 +195,7 @@ struct CameraPopoverView: View {
                 }).buttonStyle(.plain)
             }
             if SCContext.streamType != .window {
-                if !devices.isEmpty { Divider().padding([.top, .bottom], 4) }
+                if !devices.isEmpty { Divider().padding(.vertical, 4) }
                 ForEach(devices.indices, id: \.self) { index in
                     Button(action: {
                         closePopover()
@@ -220,7 +220,7 @@ struct CameraPopoverView: View {
                                     .font(.system(size: 12))
                             }.padding(.leading, 9)
                             Text(devices[index].localizedName)
-                                .padding([.top, .bottom], 8).padding(.trailing, 10)
+                                .padding(.vertical, 8).padding(.trailing, 10)
                             Spacer()
                         }
                         .frame(maxWidth: .infinity)

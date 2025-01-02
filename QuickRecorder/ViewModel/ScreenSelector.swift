@@ -143,7 +143,7 @@ struct ScreenSelector: View {
                     })
                     .buttonStyle(.plain)
                     .disabled(selected == nil)
-                }.padding([.leading, .trailing], 40)
+                }.padding(.horizontal, 40)
                 Spacer()
             }
             .padding(.top, -5)
@@ -151,7 +151,7 @@ struct ScreenSelector: View {
     }
     
     func startRecording() {
-        appDelegate.closeAllWindow()
+        closeAllWindow()
         if let screen = selected {
             appDelegate.createCountdownPanel(screen: screen) {
                 SCContext.autoStop = autoStop
@@ -192,7 +192,7 @@ class ScreenSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
     }
 
     func setupStreams() {
-        SCContext.updateAvailableContent{
+        SCContext.updateAvailableContent {
             Task {
                 do {
                     self.streams.removeAll()

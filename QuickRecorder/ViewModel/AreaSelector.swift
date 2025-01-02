@@ -35,7 +35,7 @@ struct resizeView: View {
     var screen: SCDisplay!
     
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 4) {
                 Text("Area Size:")
                 TextField("", value: $areaWidth, formatter: NumberFormatter())
@@ -64,13 +64,12 @@ struct resizeView: View {
                 Text("Output Size:")
                 let scale = Int(screen.nsScreen!.backingScaleFactor)
                 Text(" \(highRes == 2 ? areaWidth * scale : areaWidth) x \(highRes == 2 ? areaHeight * scale : areaHeight)")
-                Spacer()
             }
         }.onAppear{ focusedField = .width }
     }
     
     func resize() {
-        appDelegate.closeAllWindow(except: "Start Recording".local)
+        closeAllWindow(except: "Start Recording".local)
         AppDelegate.shared.showAreaSelector(size: NSSize(width: areaWidth, height: areaHeight), noPanel: true)
     }
 }
@@ -88,8 +87,30 @@ struct AreaSelector: View {
             Color(nsColor: NSColor.windowBackgroundColor)
                 .cornerRadius(10)
             VStack {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     Spacer()
+                    Button(action: {
+                        for w in NSApp.windows.filter({$0.title == "Area Selector".local || $0.title == "Start Recording".local}) { w.close() }
+                        appDelegate.stopGlobalMouseMonitor()
+                        WindowHighlighter.shared.registerMouseMonitor(mode: 2)
+                    }, label: {
+                        VStack{
+                            ZStack {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 36))
+                                    .foregroundStyle(.green)
+                                Image("window.select")
+                                    .resizable().scaledToFit()
+                                    .foregroundStyle(.black)
+                                    .frame(width: 27)
+                                    .offset(y: 0.5)
+                                    .blendMode(.destinationOut)
+                            }.compositingGroup()
+                            Text("Window Area")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 12))
+                        }
+                    }).buttonStyle(.plain)
                     Button(action: {
                         resizePopoverShowing = true
                     }, label: {
@@ -122,7 +143,7 @@ struct AreaSelector: View {
                         }.padding()
                     })
                     Spacer()
-                    OptionsView().padding(.leading, 18)
+                    OptionsView().padding(.horizontal, 10)
                     Spacer()
                     Button(action: {
                         isPopoverShowing = true
@@ -159,9 +180,9 @@ struct AreaSelector: View {
                     }).buttonStyle(.plain)
                     Spacer()
                 }
-            }
+            }.padding(.horizontal, 10)
             Button(action: {
-                for w in NSApplication.shared.windows.filter({ $0.title == "Area Selector".local || $0.title == "Start Recording".local}) { w.close() }
+                for w in NSApp.windows.filter({ $0.title == "Area Selector".local || $0.title == "Start Recording".local}) { w.close() }
                 appDelegate.stopGlobalMouseMonitor()
             }, label: {
                 Image(systemName: "x.circle")
@@ -169,17 +190,23 @@ struct AreaSelector: View {
                     .foregroundStyle(.secondary)
             })
             .buttonStyle(.plain)
-            .padding(.leading, -354).padding(.top, -39)
-        }.frame(width: 720, height: 90)
+            .padding(.top, -39)
+            .padding(.leading, -389)
+            .keyboardShortcut(.cancelAction)
+        }
+        .focusable(false)
+        .frame(width: 790, height: 90)
     }
     
     func startRecording() {
-        appDelegate.closeAllWindow()
+        closeAllWindow()
         appDelegate.stopGlobalMouseMonitor()
         var window = NSWindow()
         let area = SCContext.screenArea!
         guard let nsScreen = screen.nsScreen else { return }
-        let frame = NSRect(x: Int(area.origin.x + nsScreen.frame.minX - 5), y: Int(area.origin.y + nsScreen.frame.minY - 5), width: Int(area.width + 10), height: Int(area.height + 10))
+        let frame = NSRect(x: Int(area.origin.x + nsScreen.frame.minX - 3),
+                           y: Int(area.origin.y + nsScreen.frame.minY - 3),
+                           width: Int(area.width + 6), height: Int(area.height + 6))
         window = NSWindow(contentRect: frame, styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
         window.hasShadow = false
         window.level = .screenSaver
@@ -434,7 +461,7 @@ class ScreenshotWindow: NSPanel {
     func myKeyDownEvent(event: NSEvent) -> NSEvent? {
         if event.keyCode == 53 && !event.isARepeat {
             self.close()
-            for w in NSApplication.shared.windows.filter({ $0.title == "Start Recording".local }) { w.close() }
+            for w in NSApp.windows.filter({ $0.title == "Start Recording".local }) { w.close() }
             AppDelegate.shared.stopGlobalMouseMonitor()
             return nil
         }

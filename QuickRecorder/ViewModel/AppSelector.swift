@@ -90,7 +90,7 @@ struct AppSelector: View {
                     }
                 }
                 .frame(height: 445)
-                .padding([.leading, .trailing], 10)
+                .padding(.horizontal, 10)
                 .onChange(of: selectedTab) { _ in selected.removeAll() }
                 .onReceive(viewModel.$isReady) { isReady in
                     if isReady {
@@ -154,14 +154,14 @@ struct AppSelector: View {
                     })
                     .buttonStyle(.plain)
                     .disabled(selected.count < 1)
-                }.padding([.leading, .trailing], 40)
+                }.padding(.horizontal, 40)
                 Spacer()
             }.padding(.top, -5)
         }.frame(width: 780, height:555)
     }
     
     func startRecording() {
-        appDelegate.closeAllWindow()
+        closeAllWindow()
         appDelegate.createCountdownPanel(screen: display) {
             SCContext.autoStop = autoStop
             appDelegate.prepRecord(type: "application", screens: display, windows: nil, applications: selected)
@@ -228,7 +228,9 @@ struct OptionsView: View {
                         Text("High (auto)").tag(2)
                         Text("Normal (1x)").tag(1)
                         //Text("Low (0.5x)").tag(0)
-                    }.buttonStyle(.borderless)
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(minWidth: isMacOS12 ? 100 : 10)
                     Picker("", selection: $frameRate) {
                         if ![240, 144, 120, 90, 60, 30, 24, 15 ,10].contains(frameRate) {
                             Text("\(frameRate) FPS").tag(frameRate)
@@ -242,7 +244,9 @@ struct OptionsView: View {
                         Text("24 FPS").tag(24)
                         Text("15 FPS").tag(15)
                         Text("10 FPS").tag(10)
-                    }.buttonStyle(.borderless)
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(minWidth: isMacOS12 ? 100 : 10)
                 }.scaledToFit()
                 Divider().frame(height: 50)
                 VStack(alignment: .leading, spacing: 10) {
@@ -254,7 +258,9 @@ struct OptionsView: View {
                         Text("Low").tag(0.3)
                         Text("Medium").tag(0.7)
                         Text("High").tag(1.0)
-                    }.buttonStyle(.borderless)
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(minWidth: isMacOS12 ? 100 : 10)
                     Picker("", selection: $background) {
                         Text("Wallpaper").tag(BackgroundType.wallpaper)
                         if ud.bool(forKey: "withAlpha") { Text("Transparent").tag(BackgroundType.clear) }
@@ -267,49 +273,70 @@ struct OptionsView: View {
                         Text("Blue").tag(BackgroundType.blue)
                         Text("Red").tag(BackgroundType.red)
                         Text("Custom").tag(BackgroundType.custom)
-                    }.buttonStyle(.borderless)
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(minWidth: isMacOS12 ? 100 : 10)
                 }.scaledToFit()
                 Divider().frame(height: 50)
                 VStack(alignment: .leading, spacing: isMacOS12 ? 10 : 2) {
                     if #available(macOS 15, *) {
                         Toggle(isOn: $recordHDR) {
                             HStack(spacing:0){
-                                Image(systemName: "sparkles.square.filled.on.square").frame(width: 20)
-                                Text("Record HDR").fixedSize()
+                                Image(systemName: "sparkles.square.filled.on.square")
+                                    .font(.subheadline)
+                                    .frame(width: isMacOS12 ? 20 : 16)
+                                Text("Record HDR")
+                                    .font(.subheadline)
                             }
-                        }.toggleStyle(.checkbox)
+                        }
+                        .fixedSize()
+                        .toggleStyle(.checkbox)
                     }
                     Toggle(isOn: $showMouse) {
                         HStack(spacing: 0){
-                            Image(systemName: "cursorarrow").frame(width: 20)
+                            Image(systemName: "cursorarrow")
+                                .font(isMacOS12 ? .body : .subheadline)
+                                .frame(width: isMacOS12 ? 20 : 16)
                             Text("Record Cursor")
+                                .font(isMacOS12 ? .body : .subheadline)
                         }
-                    }.toggleStyle(.checkbox).fixedSize()
+                    }
+                    .fixedSize()
+                    .toggleStyle(.checkbox)
                     if #available(macOS 13, *) {
                         Toggle(isOn: $recordWinSound) {
                             HStack(spacing: 0){
-                                Image(systemName: "speaker.wave.1.fill").frame(width: 20)
+                                Image(systemName: "speaker.wave.1.fill")
+                                    .font(isMacOS12 ? .body : .subheadline)
+                                    .frame(width: isMacOS12 ? 20 : 16)
                                 Text("App's Audio")
+                                    .font(.subheadline)
                             }
-                        }.toggleStyle(.checkbox).fixedSize()
+                        }
+                        .fixedSize()
+                        .toggleStyle(.checkbox)
                     }
                     HStack(spacing: 0) {
                         Toggle(isOn: $recordMic) {
-                            Image(systemName: "mic.fill").frame(width: 20)
+                            Image(systemName: "mic.fill")
+                                .font(isMacOS12 ? .body : .subheadline)
+                                .frame(width: isMacOS12 ? 20 : 16)
                         }
+                        .fixedSize()
                         .toggleStyle(.checkbox)
                         .onChange(of: recordMic) { _ in
                             Task { await SCContext.performMicCheck() }
                         }
                         Picker("", selection: $micDevice) {
-                            Text("Default".local).tag("default").frame(width: 40)
+                            Text("Default".local).tag("default")
                             ForEach(micList, id: \.self) { device in
-                                Text(device.localizedName).tag(device.localizedName).frame(width: 40)
+                                Text(device.localizedName).tag(device.localizedName)
                             }
                         }
                         .disabled(!recordMic)
-                        .padding(.leading, -7.5)
-                        .frame(width: 99)
+                        .scaleEffect(isMacOS12 ? 1 : 0.8)
+                        .padding(.leading, isMacOS12 ? -7 : -16)
+                        .frame(width: 90, height: isMacOS12 ? 20 :12)
                         .onAppear{
                             let list = micList.map({ $0.localizedName })
                             if !list.contains(micDevice) { micDevice = "default" }
@@ -317,7 +344,7 @@ struct OptionsView: View {
                         Spacer().frame(width: 5)
                         if micDevice != "default" && enableAEC{
                             Button("⚠️", action: {
-                                let alert = AppDelegate.shared.createAlert(
+                                let alert = createAlert(
                                     title: "Compatibility Warning".local,
                                     message: "The \"Acoustic Echo Cancellation\" is enabled, but it won't work on now.\n\nIf you need to use a specific input with AEC, set it to \"Default\" and select the device you want in System Preferences.\n\nOr you can start recording without AEC.".local,
                                     button1: "OK".local, button2: "System Preferences".local)
@@ -327,8 +354,8 @@ struct OptionsView: View {
                             }).buttonStyle(.plain).fixedSize()
                         }
                     }
-                }.needScale().padding(.trailing, -18)
+                }.padding(.trailing, isMacOS12 ? 0 : -17)
             }
-        }//.padding(.leading, (micDevice != "default" && enableAEC) ? 20 : 0)
+        }
     }
 }

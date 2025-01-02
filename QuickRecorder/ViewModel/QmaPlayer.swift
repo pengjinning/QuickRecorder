@@ -12,7 +12,6 @@ import SwiftUI
 struct qmaPlayerView: View {
     @Binding var document: qmaPackageHandle
     @State var fileURL: URL
-    @State private var window: NSWindow?
     @State private var overPlay: Bool = false
     @State private var overStop: Bool = false
     @State private var overSave: Bool = false
@@ -21,12 +20,7 @@ struct qmaPlayerView: View {
     
     var body: some View {
         ZStack(alignment: .top) {
-            if #unavailable(macOS 15) {
-                VisualEffectView().ignoresSafeArea()
-                /*Color.clear
-                 .background(.ultraThinMaterial)
-                 .environment(\.controlActiveState, .active)*/
-            }
+            VisualEffectView().ignoresSafeArea()
             VStack(spacing: 3) {
                 Button {} label: {
                     PlayerSlider(percentage: $audioPlayerManager.progress, audioLength: $audioPlayerManager.audioLength){ editing in
@@ -57,7 +51,6 @@ struct qmaPlayerView: View {
                                 .foregroundColor(.secondary.opacity(overStop ? 0.1 : 0.00001))
                             Image(systemName: "stop.fill")
                                 .font(.system(size: 20))
-                            //.foregroundColor(overStop ? .primary : .secondary)
                         }
                     }
                     .buttonStyle(.plain)
@@ -79,12 +72,12 @@ struct qmaPlayerView: View {
                                 .foregroundColor(.secondary.opacity(overPlay ? 0.1 : 0.00001))
                             Image(systemName: audioPlayerManager.isPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 30))
-                            //.foregroundColor(overPlay ? .primary : .secondary)
                         }
                     }
                     .buttonStyle(.plain)
                     .help("Play / Pause")
                     .frame(width: 35, height: 35)
+                    .padding(.leading, 2)
                     .disabled(audioPlayerManager.exporting)
                     .onHover { hovering in overPlay = hovering }
                     
@@ -95,8 +88,11 @@ struct qmaPlayerView: View {
                             Rectangle()
                                 .cornerRadius(6)
                                 .foregroundColor(.secondary.opacity(overSave ? 0.1 : 0.00001))
-                            Image(systemName: "archivebox.fill")
-                                .font(.system(size: 17.5))
+                            Image("save")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 16.5)
+                                .foregroundColor(.primary)
                         }
                     }
                     .buttonStyle(.plain)
@@ -121,7 +117,7 @@ struct qmaPlayerView: View {
                                 Image(systemName: "square.and.arrow.up")
                                     .font(.system(size: 18))
                                     .foregroundColor(.secondary)
-                                    .rotationEffect(Angle(degrees: 90))
+                                    .offset(y: -2)
                             }
                         }
                     }
@@ -150,18 +146,22 @@ struct qmaPlayerView: View {
                         }
                     }
                 }.buttonStyle(.plain)
-            }.padding().padding(.top, isMacOS15 ? -4 : -14)
+            }.padding().padding(.top, -14)
         }
         .onAppear {
             audioPlayerManager.loadAudioFiles(format: document.info.format, package: fileURL, encoder: document.info.encoder, saveMP3: document.info.exportMP3)
                 audioPlayerManager.sysVol = document.info.sysVol
                 audioPlayerManager.micVol = document.info.micVol
         }
-        .background(WindowAccessor(window: $window, onWindowOpen: {
-            guard let w = window else { return }
-            w.setFrame(NSRect(origin: w.frame.origin, size: CGSize(width: 400, height: 100)), display: true)
+        .background(WindowAccessor(onWindowOpen: { w in
+            guard let w = w else { return }
+            w.setContentSize(CGSize(width: 400, height: 100))
             w.isMovableByWindowBackground = true
-            if #unavailable(macOS 15) { w.titlebarAppearsTransparent = true }
+            w.titlebarAppearsTransparent = true
+        }, onWindowActive: { w in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { w?.titlebarAppearsTransparent = true }
+        }, onWindowDeactivate: { w in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { w?.titlebarAppearsTransparent = true }
         }, onWindowClose: { audioPlayerManager.reset() }))
     }
     
@@ -189,45 +189,6 @@ struct VisualEffectView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-    }
-}
-
-struct WindowAccessor: NSViewRepresentable {
-    @Binding var window: NSWindow?
-    var onWindowOpen: () -> Void
-    var onWindowClose: () -> Void
-    //var onWindowActive: () -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            self.window = view.window
-            self.window?.delegate = context.coordinator
-            self.onWindowOpen()
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onWindowOpen: onWindowOpen, onWindowClose: onWindowClose)
-    }
-
-    class Coordinator: NSObject, NSWindowDelegate {
-        var onWindowOpen: () -> Void
-        var onWindowClose: () -> Void
-        //var onWindowActive: () -> Void
-
-        init(onWindowOpen: @escaping () -> Void, onWindowClose: @escaping () -> Void) {
-            self.onWindowOpen = onWindowOpen
-            self.onWindowClose = onWindowClose
-            //self.onWindowActive = onWindowActive
-        }
-
-        func windowWillClose(_ notification: Notification) { onWindowClose() }
-        
-        //func windowDidBecomeKey(_ notification: Notification) { onWindowActive()  }
     }
 }
 
@@ -405,6 +366,29 @@ struct qmaPackageHandle: FileDocument {
     }
 }
 
+extension qmaPackageHandle {
+    static func load(from url: URL) throws -> qmaPackageHandle {
+        let fileWrapper = try FileWrapper(url: url, options: .immediate)
+        guard let infoFileWrapper = fileWrapper.fileWrappers?["info.json"],
+              let infoData = infoFileWrapper.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let info = try JSONDecoder().decode(Info.self, from: infoData)
+
+        guard let sysAudioFileWrapper = fileWrapper.fileWrappers?["sys.\(info.format)"],
+              let sysAudio = sysAudioFileWrapper.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+
+        guard let micAudioFileWrapper = fileWrapper.fileWrappers?["mic.\(info.format)"],
+              let micAudio = micAudioFileWrapper.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+
+        return qmaPackageHandle(info: info, sysAudio: sysAudio, micAudio: micAudio)
+    }
+}
+
 class AudioPlayerManager: ObservableObject {
     @Published var progress: Double = 0.0
     @Published var isPlaying: Bool = false
@@ -570,79 +554,82 @@ class AudioPlayerManager: ObservableObject {
         stop()
         let format = exportMP3 ? "mp3" : self.fileFormat
         showSavePanel(defaultFileName: "\(packageURL.deletingPathExtension().appendingPathExtension(format).lastPathComponent)", exportMP3: exportMP3) { url, saveAsMP3 in
-            if var url = url {
-                if url.pathExtension == "mp3" { url = url.deletingPathExtension() }
-                if url.pathExtension != self.fileFormat { url = url.appendingPathExtension(self.fileFormat) }
-                let lastComp = url.lastPathComponent
-                if self.exportMP3 { url = url.deletingLastPathComponent().appendingPathComponent("." + url.lastPathComponent) }
+            if let url = url { self.saveFile(url, saveAsMP3: saveAsMP3) }
+        }
+    }
+    
+    func saveFile(_ url: URL, saveAsMP3: Bool = false) {
+        var url = url
+        if url.pathExtension == "mp3" { url = url.deletingPathExtension() }
+        if url.pathExtension != self.fileFormat { url = url.appendingPathExtension(self.fileFormat) }
+        let lastComp = url.lastPathComponent
+        if self.exportMP3 { url = url.deletingLastPathComponent().appendingPathComponent("." + url.lastPathComponent) }
+        
+        Thread.detachNewThread {
+            DispatchQueue.main.async { self.exporting = true }
+            do {
+                guard let audioFile1 = self.audioFile1, let audioFile2 = self.audioFile2 else { return }
+                self.playerNode1.scheduleFile(audioFile1, at: nil, completionHandler: nil)
+                self.playerNode2.scheduleFile(audioFile2, at: nil, completionHandler: nil)
                 
-                Thread.detachNewThread {
-                    DispatchQueue.main.async { self.exporting = true }
-                    do {
-                        guard let audioFile1 = self.audioFile1, let audioFile2 = self.audioFile2 else { return }
-                        self.playerNode1.scheduleFile(audioFile1, at: nil, completionHandler: nil)
-                        self.playerNode2.scheduleFile(audioFile2, at: nil, completionHandler: nil)
-                        
-                        SCContext.updateAudioSettings(format: self.fileEncoder)
-                        let outputFormat = self.playerNode1.outputFormat(forBus: 0)
-                        let outputFile = try AVAudioFile(forWriting: url, settings: SCContext.audioSettings, commonFormat: .pcmFormatFloat32, interleaved: false)
-                        self.engine.stop()
-                        try self.engine.enableManualRenderingMode(.offline, format: outputFormat, maximumFrameCount: 4096)
-                        try self.engine.start()
-                        
-                        self.playerNode1.play()
-                        self.playerNode2.play()
-                        
-                        let duration = audioFile1.length
-                        let buffer = AVAudioPCMBuffer(pcmFormat: self.engine.manualRenderingFormat, frameCapacity: self.engine.manualRenderingMaximumFrameCount)!
-                        
-                        while self.engine.manualRenderingSampleTime < duration {
-                            let framesToRender = min(UInt32(buffer.frameCapacity), UInt32(duration - self.engine.manualRenderingSampleTime))
-                            let status = try self.engine.renderOffline(framesToRender, to: buffer)
-                            switch status {
-                            case .success:
-                                try outputFile.write(from: buffer)
-                            case .insufficientDataFromInputNode, .cannotDoInCurrentContext:
-                                // Handle the cases where rendering cannot proceed
-                                break
-                            default:
-                                // Handle other cases if needed
-                                break
-                            }
-                        }
-                        
-                        self.engine.disableManualRenderingMode()
-                        self.engine.stop()
-                        self.setupAudioEngine()
-                        
-                        let title = "Recording Completed".local
-                        var body = String(format: "File saved to: %@".local, url.path.removingPercentEncoding!)
-                        let id = "quickrecorder.completed.\(Date.now)"
-                        
-                        if saveAsMP3 {
-                            let oldURL = url
-                            let newURl = url.deletingLastPathComponent().appendingPathComponent(lastComp).deletingPathExtension().appendingPathExtension("mp3")
-                            body = String(format: "File saved to: %@".local, url.path.removingPercentEncoding!)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                Task {
-                                    do {
-                                        try await SCContext.m4a2mp3(inputUrl: oldURL, outputUrl: newURl)
-                                        try? FileManager.default.removeItem(at: oldURL)
-                                    } catch {
-                                        SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(Date.now)")
-                                        return
-                                    }
-                                }
-                            }
-                        }
-                        
-                        SCContext.showNotification(title: title, body: body, id: id)
-                    } catch {
-                        SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(Date.now)")
+                let audioSettings = SCContext.updateAudioSettings(format: self.fileEncoder)
+                let outputFormat = self.playerNode1.outputFormat(forBus: 0)
+                let outputFile = try AVAudioFile(forWriting: url, settings: audioSettings, commonFormat: .pcmFormatFloat32, interleaved: false)
+                self.engine.stop()
+                try self.engine.enableManualRenderingMode(.offline, format: outputFormat, maximumFrameCount: 4096)
+                try self.engine.start()
+                
+                self.playerNode1.play()
+                self.playerNode2.play()
+                
+                let duration = audioFile1.length
+                let buffer = AVAudioPCMBuffer(pcmFormat: self.engine.manualRenderingFormat, frameCapacity: self.engine.manualRenderingMaximumFrameCount)!
+                
+                while self.engine.manualRenderingSampleTime < duration {
+                    let framesToRender = min(UInt32(buffer.frameCapacity), UInt32(duration - self.engine.manualRenderingSampleTime))
+                    let status = try self.engine.renderOffline(framesToRender, to: buffer)
+                    switch status {
+                    case .success:
+                        try outputFile.write(from: buffer)
+                    case .insufficientDataFromInputNode, .cannotDoInCurrentContext:
+                        // Handle the cases where rendering cannot proceed
+                        break
+                    default:
+                        // Handle other cases if needed
+                        break
                     }
-                    DispatchQueue.main.async { self.exporting = false }
                 }
+                
+                self.engine.disableManualRenderingMode()
+                self.engine.stop()
+                self.setupAudioEngine()
+                
+                let title = "Recording Completed".local
+                var body = String(format: "File saved to: %@".local, url.path.removingPercentEncoding!)
+                let id = "quickrecorder.completed.\(UUID().uuidString)"
+                
+                if saveAsMP3 {
+                    let oldURL = url
+                    let newURl = url.deletingLastPathComponent().appendingPathComponent(lastComp).deletingPathExtension().appendingPathExtension("mp3")
+                    body = String(format: "File saved to: %@".local, newURl.path.removingPercentEncoding!)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        Task {
+                            do {
+                                try await SCContext.m4a2mp3(inputUrl: oldURL, outputUrl: newURl)
+                                try? fd.removeItem(at: oldURL)
+                            } catch {
+                                SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
+                                return
+                            }
+                        }
+                    }
+                }
+                
+                SCContext.showNotification(title: title, body: body, id: id)
+            } catch {
+                SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
             }
+            DispatchQueue.main.async { self.exporting = false }
         }
     }
     

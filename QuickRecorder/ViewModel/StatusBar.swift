@@ -7,25 +7,22 @@
 
 import SwiftUI
 
-struct StatusBarItemMini: View {
-    var body: some View {
-        HStack(spacing: 0) {
-            
-        }
-    }
+class PopoverState: ObservableObject {
+    static let shared = PopoverState()
+    @Published var isShowing: Bool = false
 }
 
 struct StatusBarItem: View {
     @State private var deviceWindowIsShowing = true
-    @State private var isPopoverShowing = false
     @State private var isMainMenuShowing = false
     @State private var isHovering = false
     @State private var recordingLength = "00:00"
     @State private var isPassed = SCContext.isPaused
+    @StateObject private var popoverState = PopoverState.shared
     //@NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("miniStatusBar") private var miniStatusBar: Bool = false
     @AppStorage("highlightMouse") private var highlightMouse: Bool = false
-    var appDelegate = AppDelegate.shared
+    private var appDelegate = AppDelegate.shared
     
     var body: some View {
         HStack(spacing: 0) {
@@ -66,25 +63,6 @@ struct StatusBarItem: View {
                                             .foregroundStyle(.white)
                                             .frame(width: 16, alignment: .center)
                                     }).buttonStyle(.plain)
-                                }
-                            } else {
-                                Text(recordingLength)
-                                    .foregroundStyle(.white)
-                                    .font(.system(size: 15).monospaced())
-                                    .offset(x: 0.5)
-                            }
-                            if SCContext.streamType != .systemaudio {
-                                if SCContext.streamType != .idevice {
-                                    Button(action:{
-                                        isPopoverShowing = true
-                                    }, label: {
-                                        Image(systemName: "camera.circle.fill")
-                                            .font(.system(size: 16))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 16, alignment: .center)
-                                    })
-                                    .buttonStyle(.plain)
-                                    .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom) { CameraPopoverView(closePopover: { isPopoverShowing = false })}
                                 } else {
                                     Button(action:{
                                         DispatchQueue.main.async {
@@ -97,8 +75,28 @@ struct StatusBarItem: View {
                                             .foregroundStyle(.white)
                                             .frame(width: 16, alignment: .center)
                                             .opacity(deviceWindowIsShowing ? 1 : 0.7)
+                                    }).buttonStyle(.plain)
+                                }
+                            } else {
+                                Text(recordingLength)
+                                    .foregroundStyle(.white)
+                                    .font(.system(size: 15).monospaced())
+                                    .offset(x: 0.5)
+                            }
+                            if SCContext.streamType != .systemaudio {
+                                if SCContext.streamType != .idevice {
+                                    Button(action:{
+                                        popoverState.isShowing = true
+                                    }, label: {
+                                        Image(systemName: "camera.circle.fill")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(.white)
+                                            .frame(width: 16, alignment: .center)
                                     })
                                     .buttonStyle(.plain)
+                                    .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
+                                        CameraPopoverView(closePopover: { popoverState.isShowing = false })
+                                    }
                                 }
                             }
                         } else {
@@ -163,7 +161,7 @@ struct StatusBarItem: View {
                     if SCContext.streamType != .systemaudio {
                         if SCContext.streamType != .idevice {
                             Button(action:{
-                                isPopoverShowing = true
+                                popoverState.isShowing = true
                             }, label: {
                                 ZStack {
                                     Rectangle()
@@ -175,7 +173,9 @@ struct StatusBarItem: View {
                                 }.frame(width: 36).padding([.leading,.trailing], 4)
                             })
                             .buttonStyle(.plain)
-                            .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom) { CameraPopoverView(closePopover: { isPopoverShowing = false })}
+                            .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
+                                CameraPopoverView(closePopover: { popoverState.isShowing = false })
+                            }
                         } else {
                             Button(action:{
                                 DispatchQueue.main.async {
@@ -198,7 +198,7 @@ struct StatusBarItem: View {
                 }
             } else if ud.bool(forKey: "showMenubar") {
                 Button(action: {
-                    isPopoverShowing = true
+                    popoverState.isShowing = true
                 }, label: {
                     ZStack {
                         Color.white.opacity(0.0001)
@@ -208,12 +208,16 @@ struct StatusBarItem: View {
                     }
                 })
                 .buttonStyle(.plain)
-                .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom) {
-                    ContentView(fromStatusBar: true)
-                        .onAppear{
-                            appDelegate.closeAllWindow()
-                            if isMacOS12 { NSApplication.shared.activate(ignoringOtherApps: true) }
-                        }
+                .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
+                    if #available(macOS 13, *) {
+                        ContentViewNew().onAppear{ closeAllWindow() }
+                    } else {
+                        ContentView(fromStatusBar: true)
+                            .onAppear{
+                                closeAllWindow()
+                                if isMacOS12 { NSApp.activate(ignoringOtherApps: true) }
+                            }
+                    }
                 }
             }
         }
@@ -226,21 +230,19 @@ struct StatusBarItem: View {
     }
 }
 
-extension AppDelegate: NSMenuDelegate {
-    func updateStatusBar() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            if SCContext.streamType == nil && !ud.bool(forKey: "showMenubar") {
-                statusBarItem.isVisible = false
-                return
-            }
-            guard let button = statusBarItem.button else { return }
-            //let width = SCContext.streamType == nil ? 36 : ((SCContext.streamType == .idevice || SCContext.streamType == .systemaudio) ? 138 : 158)
-            let iconView = NSHostingView(rootView: StatusBarItem().padding(.top, isMacOS14 ? -2 : -1))
-            iconView.frame = NSRect(x: 0, y: 1, width: getStatusBarWidth(), height: isMacOS14 ? 22 : 21)
-            button.subviews = [iconView]
-            button.frame = iconView.frame
-            button.setAccessibilityLabel("QuickRecorder")
-            statusBarItem.isVisible = true
+func updateStatusBar() {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        if SCContext.streamType == nil && !ud.bool(forKey: "showMenubar") {
+            statusBarItem.isVisible = false
+            return
         }
+        guard let button = statusBarItem.button else { return }
+        //let width = SCContext.streamType == nil ? 36 : ((SCContext.streamType == .idevice || SCContext.streamType == .systemaudio) ? 138 : 158)
+        let iconView = NSHostingView(rootView: StatusBarItem().padding(.top, isMacOS14 ? -2 : -1))
+        iconView.frame = NSRect(x: 0, y: 1, width: getStatusBarWidth(), height: isMacOS14 ? 22 : 21)
+        button.subviews = [iconView]
+        button.frame = iconView.frame
+        button.setAccessibilityLabel("QuickRecorder")
+        statusBarItem.isVisible = true
     }
 }

@@ -7,6 +7,7 @@ class RecorderPlayerModel: NSObject, ObservableObject {
     @Published var playerView: AVPlayerView
     var asset: AVAsset?
     var fileUrl: URL?
+    var playerItem: AVPlayerItem!
     
     override init() {
         self.playerView = AVPlayerView()
@@ -19,7 +20,7 @@ class RecorderPlayerModel: NSObject, ObservableObject {
         fileUrl = fromUrl
         asset = AVAsset(url: fromUrl)
         guard let asset = asset else { return }
-        let playerItem = AVPlayerItem(asset: asset)
+        playerItem = AVPlayerItem(asset: asset)
         playerView.player?.replaceCurrentItem(with: playerItem)
         playerView.controlsStyle = .inline
         
@@ -79,16 +80,16 @@ class RecorderPlayerModel: NSObject, ObservableObject {
                                     content.body = String(format: "File saved to: %@".local, filePath)
                                     content.sound = UNNotificationSound.default
                                     let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-                                    let request = UNNotificationRequest(identifier: "quickrecorder.completed.\(Date.now)", content: content, trigger: trigger)
+                                    let request = UNNotificationRequest(identifier: "quickrecorder.completed.\(UUID().uuidString)", content: content, trigger: trigger)
                                     UNUserNotificationCenter.current().add(request) { error in
                                         if let error = error { print("Notification failed to send：\(error.localizedDescription)") }
                                     }
                                 }
                             }
-                            for w in NSApplication.shared.windows.filter({ $0.title == fileUrl.lastPathComponent }) { w.close() }
+                            for w in NSApp.windows.filter({ $0.title == fileUrl.lastPathComponent }) { w.close() }
                         } else {
                             guard let fileUrl = self.fileUrl else { return }
-                            for w in NSApplication.shared.windows.filter({ $0.title == fileUrl.lastPathComponent }) { w.close() }
+                            for w in NSApp.windows.filter({ $0.title == fileUrl.lastPathComponent }) { w.close() }
                         }
                     }
                 }
@@ -98,6 +99,13 @@ class RecorderPlayerModel: NSObject, ObservableObject {
 
             playerItem.removeObserver(self, forKeyPath: #keyPath(AVPlayerItem.status))
         }
+    }
+    
+    func cleanup() {
+        // 移除所有观察者
+        playerItem.removeObserver(self, forKeyPath: #keyPath(AVPlayerItem.status))
+        playerView.player?.pause()
+        playerView.player = nil // 移除 player 对象
     }
 }
 
@@ -137,7 +145,12 @@ struct VideoTrimmerView: View {
                             .cornerRadius(5)
                     )
             }.padding([.bottom, .leading, .trailing])
-        }.padding(.top, -22)
+        }
+        .padding(.top, -22)
+        .background(WindowAccessor(onWindowOpen: {_ in}, onWindowClose: {
+            playerViewModel.playerView.player?.replaceCurrentItem(with: nil)
+            playerViewModel.playerView.player = nil
+        }))
         //.navigationTitle(videoURL.lastPathComponent)
         //.preferredColorScheme(.dark)
     }
